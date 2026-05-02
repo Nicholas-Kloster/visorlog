@@ -60,6 +60,13 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// IPExists returns true if any event already exists for the given IP.
+func (db *DB) IPExists(ip string) (bool, error) {
+	var count int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM events WHERE host_ip = ?`, ip).Scan(&count)
+	return count > 0, err
+}
+
 // Insert writes a new event record.
 func (db *DB) Insert(e *Event) (int64, error) {
 	if e.Timestamp == "" {

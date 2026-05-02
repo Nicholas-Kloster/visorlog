@@ -14,6 +14,8 @@ import (
 var (
 	flagIngestFile   string
 	flagIngestFormat string
+	flagIngestSector string
+	flagIngestDedup  bool
 )
 
 var ingestCmd = &cobra.Command{
@@ -35,7 +37,9 @@ Examples:
 
 func init() {
 	ingestCmd.Flags().StringVar(&flagIngestFile, "from", "", "read from file instead of stdin")
-	ingestCmd.Flags().StringVar(&flagIngestFormat, "format", "ndjson", "input format: ndjson, visorgoose")
+	ingestCmd.Flags().StringVar(&flagIngestFormat, "format", "ndjson", "input format: ndjson, visorgoose, ollama-recon")
+	ingestCmd.Flags().StringVar(&flagIngestSector, "sector", "", "override sector for all ingested events")
+	ingestCmd.Flags().BoolVar(&flagIngestDedup, "dedup", true, "skip IPs already in the database")
 }
 
 func runIngest(cmd *cobra.Command, args []string) error {
@@ -180,11 +184,19 @@ func ingestOllamaRecon(db *store.DB, r *os.File) error {
 		return fmt.Errorf("decode ollama-recon state: %w", err)
 	}
 
-	var inserted, skipped int
+	var inserted, skipped, duped int
 	for _, n := range raw {
 		if n.Status != "live" {
 			skipped++
 			continue
+		}
+
+		if flagIngestDedup {
+			exists, _ := db.IPExists(n.IP)
+			if exists {
+				duped++
+				continue
+			}
 		}
 
 		hostname := ""
@@ -205,8 +217,6 @@ func ingestOllamaRecon(db *store.DB, r *os.File) error {
 			}
 			tags = append(tags, "CLOUD")
 		}
-
-		// detect RAG from model names
 		for _, m := range n.Models {
 			ml := strings.ToLower(m)
 			if strings.Contains(ml, "bge") || strings.Contains(ml, "embed") || strings.Contains(ml, "nomic") {
@@ -214,9 +224,18 @@ func ingestOllamaRecon(db *store.DB, r *os.File) error {
 				break
 			}
 		}
+		for _, m := range n.Models {
+			if strings.Contains(strings.ToLower(m), "distill") {
+				tags = append(tags, "DISTILLED")
+				break
+			}
+		}
 
 		tld := extractTLD(hostname)
-		sector := tldToSector(tld)
+		sector := flagIngestSector
+		if sector == "" {
+			sector = tldToSector(tld)
+		}
 
 		e := store.NewDiscovery(
 			n.IP, hostname, n.Org, n.Country,
@@ -233,7 +252,7 @@ func ingestOllamaRecon(db *store.DB, r *os.File) error {
 		inserted++
 	}
 
-	fmt.Printf("ingested %d live nodes (%d dead/skipped) from ollama-recon state\n", inserted, skipped)
+	fmt.Printf("ingested %d live nodes (%d dead/skipped, %d deduped) from ollama-recon state\n", inserted, skipped, duped)
 	return nil
 }
 
@@ -259,7 +278,7 @@ func extractTLD(hostname string) string {
 }
 
 func tldToSector(tld string) string {
-	govTLDs := []string{".gov", ".mil", ".go.id", ".gov.br", ".gov.tw",
+	govTLDs := []string{".gov", ".go.id", ".gov.br", ".gov.tw",
 		".gouv.fr", ".gob.mx", ".go.jp", ".gov.in", ".gov.au",
 		".gov.uk", ".gc.ca", ".gob.es", ".gov.cn", ".gov.za",
 		".go.kr", ".gov.sg", ".go.th", ".gob.ar", ".gov.my",
@@ -271,6 +290,14 @@ func tldToSector(tld string) string {
 	}
 	if tld == ".mil" {
 		return store.SectorMilitary
+	}
+	univTLDs := []string{".edu", ".ac.uk", ".edu.au", ".ac.id", ".edu.br",
+		".ac.in", ".edu.cn", ".ac.kr", ".ac.jp", ".edu.tw",
+		".ac.za", ".edu.sg", ".ac.nz", ".edu.mx", ".edu.ph"}
+	for _, u := range univTLDs {
+		if tld == u {
+			return store.SectorUniversity
+		}
 	}
 	return store.SectorCommercial
 }
