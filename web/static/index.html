@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VisorLog</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --surface: #141417;
+    --border: #1f1f24;
+    --text: #e2e2e6;
+    --muted: #6b6b7a;
+    --critical: #ff4757;
+    --high: #ff6b35;
+    --medium: #ffa502;
+    --low: #2ed573;
+    --info: #5352ed;
+    --accent: #2DB2BF;
+    --takeover: #ff4757;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .logo { color: var(--accent); font-size: 16px; font-weight: 700; letter-spacing: 2px; }
+  .logo span { color: var(--muted); font-weight: 400; }
+  .header-meta { color: var(--muted); font-size: 11px; }
+
+  .alerts-bar {
+    display: none; padding: 10px 24px;
+    background: rgba(255,71,87,0.12); border-bottom: 1px solid rgba(255,71,87,0.3);
+    color: var(--critical); font-size: 12px;
+  }
+  .alerts-bar.active { display: flex; align-items: center; gap: 12px; }
+
+  main { padding: 24px; display: grid; gap: 20px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px;
+  }
+  .stat-card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; }
+  .stat-card.critical .value { color: var(--critical); }
+  .stat-card.takeover .value { color: var(--takeover); }
+  .stat-card.accent .value { color: var(--accent); }
+
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px;
+  }
+  .chart-card h3 { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+  .chart-card canvas { max-height: 200px; }
+
+  .findings-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden;
+  }
+  .findings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .findings-header h3 { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .filter-row { display: flex; gap: 8px; }
+  select, input {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 10px; border-radius: 4px; font-size: 12px; font-family: inherit;
+  }
+  select:focus, input:focus { outline: none; border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    padding: 10px 12px; text-align: left; font-size: 11px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+    cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 3px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+  }
+  .badge.critical { background: rgba(255,71,87,0.15); color: var(--critical); }
+  .badge.high     { background: rgba(255,107,53,0.15); color: var(--high); }
+  .badge.medium   { background: rgba(255,165,2,0.15);  color: var(--medium); }
+  .badge.low      { background: rgba(46,213,115,0.15); color: var(--low); }
+  .badge.info     { background: rgba(83,82,237,0.15);  color: var(--info); }
+
+  .status-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 3px;
+    font-size: 11px; color: var(--muted); background: var(--border);
+  }
+  .status-badge.open         { color: var(--critical); background: rgba(255,71,87,0.1); }
+  .status-badge.disclosed    { color: var(--medium); background: rgba(255,165,2,0.1); }
+  .status-badge.acknowledged { color: var(--accent); background: rgba(45,178,191,0.1); }
+  .status-badge.remediated   { color: var(--low); background: rgba(46,213,115,0.1); }
+  .status-badge.verified     { color: var(--low); background: rgba(46,213,115,0.15); }
+
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px;
+         background: rgba(45,178,191,0.1); color: var(--accent); margin: 1px; }
+  .tag.TAKEOVER { background: rgba(255,71,87,0.15); color: var(--critical); }
+
+  .ip { color: var(--accent); font-size: 12px; }
+  .hostname { color: var(--muted); font-size: 11px; margin-top: 2px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .action-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
+    font-family: inherit;
+  }
+  .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 24px; min-width: 380px;
+  }
+  .modal h3 { margin-bottom: 16px; font-size: 14px; }
+  .modal label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; margin-top: 12px; }
+  .modal select, .modal input, .modal textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 4px;
+    font-family: inherit; font-size: 12px;
+  }
+  .modal textarea { height: 80px; resize: vertical; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+  .btn-primary {
+    background: var(--accent); color: var(--bg); border: none;
+    padding: 7px 16px; border-radius: 4px; cursor: pointer; font-family: inherit;
+    font-size: 12px; font-weight: 600;
+  }
+  .btn-cancel {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    padding: 7px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+  }
+
+  .lifecycle-bar {
+    display: flex; gap: 0; margin: 4px 0 0;
+  }
+  .lifecycle-step {
+    flex: 1; text-align: center; padding: 6px 4px; font-size: 10px;
+    color: var(--muted); border-top: 2px solid var(--border);
+  }
+  .lifecycle-step.active { color: var(--accent); border-top-color: var(--accent); }
+  .lifecycle-step.done   { color: var(--low);    border-top-color: var(--low); }
+
+  .empty { text-align: center; padding: 40px; color: var(--muted); }
+
+  @media (max-width: 768px) {
+    .charts-row { grid-template-columns: 1fr; }
+    .filter-row { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">VISOR<span>LOG</span></div>
+  <div class="header-meta" id="header-meta">loading...</div>
+</header>
+
+<div class="alerts-bar" id="alerts-bar"></div>
+
+<main>
+  <div class="stat-grid" id="stat-grid">
+    <div class="stat-card critical"><div class="label">Critical Open</div><div class="value" id="stat-critical">—</div></div>
+    <div class="stat-card high"><div class="label">High Open</div><div class="value" id="stat-high" style="color:var(--high)">—</div></div>
+    <div class="stat-card takeover"><div class="label">Takeovers</div><div class="value" id="stat-takeover">—</div></div>
+    <div class="stat-card accent"><div class="label">Total Findings</div><div class="value" id="stat-total">—</div></div>
+    <div class="stat-card"><div class="label">Disclosed</div><div class="value" id="stat-disclosed" style="color:var(--medium)">—</div></div>
+    <div class="stat-card"><div class="label">Remediated</div><div class="value" id="stat-remediated" style="color:var(--low)">—</div></div>
+  </div>
+
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Severity Breakdown</h3>
+      <canvas id="chart-severity"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>By Sector</h3>
+      <canvas id="chart-sector"></canvas>
+    </div>
+  </div>
+
+  <div class="findings-card">
+    <div class="findings-header">
+      <h3>Findings</h3>
+      <div class="filter-row">
+        <select id="filter-status" onchange="loadFindings()">
+          <option value="">all statuses</option>
+          <option value="open" selected>open</option>
+          <option value="disclosed">disclosed</option>
+          <option value="acknowledged">acknowledged</option>
+          <option value="remediated">remediated</option>
+          <option value="verified">verified</option>
+          <option value="archived">archived</option>
+        </select>
+        <select id="filter-severity" onchange="loadFindings()">
+          <option value="">all severities</option>
+          <option value="critical">critical</option>
+          <option value="high">high</option>
+          <option value="medium">medium</option>
+          <option value="low">low</option>
+        </select>
+        <select id="filter-sector" onchange="loadFindings()">
+          <option value="">all sectors</option>
+          <option value="government">government</option>
+          <option value="university">university</option>
+          <option value="healthcare">healthcare</option>
+          <option value="commercial">commercial</option>
+        </select>
+        <select id="filter-tag" onchange="loadFindings()">
+          <option value="">all tags</option>
+          <option value="TAKEOVER">TAKEOVER</option>
+          <option value="CVE-2025-63389">CVE-2025-63389</option>
+          <option value="CLOUD">CLOUD</option>
+          <option value="RAG">RAG</option>
+        </select>
+        <input type="text" id="filter-country" placeholder="country" style="width:80px" oninput="loadFindings()">
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Host</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Sector</th>
+          <th>Tags</th>
+          <th>Discovered</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="findings-tbody">
+        <tr><td colspan="8" class="empty">loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="findings-card" style="padding:16px">
+    <h3 style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Lifecycle Pipeline</h3>
+    <div class="lifecycle-bar" id="lifecycle-bar">
+      <div class="lifecycle-step" data-stage="open">open<br><span id="lc-open">—</span></div>
+      <div class="lifecycle-step" data-stage="disclosed">disclosed<br><span id="lc-disclosed">—</span></div>
+      <div class="lifecycle-step" data-stage="acknowledged">acknowledged<br><span id="lc-ack">—</span></div>
+      <div class="lifecycle-step" data-stage="remediated">remediated<br><span id="lc-remediated">—</span></div>
+      <div class="lifecycle-step" data-stage="verified">verified<br><span id="lc-verified">—</span></div>
+    </div>
+  </div>
+</main>
+
+<!-- Update status modal -->
+<div class="modal-overlay" id="modal-update">
+  <div class="modal">
+    <h3>Update Finding #<span id="modal-id"></span></h3>
+    <label>New Status</label>
+    <select id="modal-status">
+      <option value="open">open</option>
+      <option value="disclosed">disclosed</option>
+      <option value="acknowledged">acknowledged</option>
+      <option value="remediated">remediated</option>
+      <option value="verified">verified</option>
+      <option value="archived">archived</option>
+    </select>
+    <label>Note (optional)</label>
+    <textarea id="modal-note" placeholder="e.g. emailed security@org.gov"></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="submitUpdate()">Update</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let severityChart, sectorChart;
+let currentUpdateId = null;
+
+const SEV_COLORS = {
+  critical: '#ff4757', high: '#ff6b35', medium: '#ffa502', low: '#2ed573', info: '#5352ed'
+};
+const SECTOR_COLORS = ['#2DB2BF','#5352ed','#ff6b35','#2ed573','#ffa502','#ff4757'];
+
+async function api(path) {
+  const r = await fetch('/api' + path);
+  return r.json();
+}
+
+async function loadStats() {
+  const s = await api('/stats');
+  document.getElementById('stat-critical').textContent  = s.open_by_severity?.critical || 0;
+  document.getElementById('stat-high').textContent      = s.open_by_severity?.high || 0;
+  document.getElementById('stat-takeover').textContent  = s.takeover_count || 0;
+  document.getElementById('stat-total').textContent     = s.total || 0;
+  document.getElementById('stat-disclosed').textContent = s.status_counts?.disclosed || 0;
+  document.getElementById('stat-remediated').textContent= s.status_counts?.remediated || 0;
+  document.getElementById('header-meta').textContent    = `${s.total} findings · ${new Date().toLocaleTimeString()}`;
+
+  // lifecycle bar
+  const lc = s.status_counts || {};
+  document.getElementById('lc-open').textContent       = lc.open || 0;
+  document.getElementById('lc-disclosed').textContent  = lc.disclosed || 0;
+  document.getElementById('lc-ack').textContent        = lc.acknowledged || 0;
+  document.getElementById('lc-remediated').textContent = lc.remediated || 0;
+  document.getElementById('lc-verified').textContent   = lc.verified || 0;
+
+  renderCharts(s);
+}
+
+async function loadAlerts() {
+  const alerts = await api('/alerts');
+  const bar = document.getElementById('alerts-bar');
+  if (alerts && alerts.length > 0) {
+    bar.className = 'alerts-bar active';
+    bar.innerHTML = `⚠ ${alerts.length} alert(s): ` + alerts.slice(0,3).map(a => a.message).join(' · ');
+  }
+}
+
+async function loadFindings() {
+  const status   = document.getElementById('filter-status').value;
+  const severity = document.getElementById('filter-severity').value;
+  const sector   = document.getElementById('filter-sector').value;
+  const tag      = document.getElementById('filter-tag').value;
+  const country  = document.getElementById('filter-country').value.trim().toUpperCase();
+
+  const params = new URLSearchParams();
+  if (status)   params.set('status', status);
+  if (severity) params.set('severity', severity);
+  if (sector)   params.set('sector', sector);
+  if (tag)      params.set('tag', tag);
+  if (country)  params.set('country', country);
+
+  const findings = await api('/findings?' + params.toString());
+  const tbody = document.getElementById('findings-tbody');
+
+  if (!findings || findings.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">no results</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = findings.map(f => {
+    const tags = (f['nuclide.tags'] || []).map(t =>
+      `<span class="tag ${t}">${t}</span>`).join('');
+    const hn = f['host.hostname'] || '';
+    const ts = f.timestamp ? f.timestamp.slice(0,10) : '';
+    return `<tr>
+      <td style="color:var(--muted)">${f.id}</td>
+      <td>
+        <div class="ip">${f['host.ip'] || ''}</div>
+        <div class="hostname" title="${hn}">${hn}</div>
+      </td>
+      <td><span class="badge ${f['event.severity']}">${f['event.severity']}</span></td>
+      <td><span class="status-badge ${f['lifecycle.status']}">${f['lifecycle.status']}</span></td>
+      <td style="color:var(--muted)">${f['nuclide.sector'] || '—'}</td>
+      <td>${tags}</td>
+      <td style="color:var(--muted)">${ts}</td>
+      <td><button class="action-btn" onclick="openModal(${f.id}, '${f['lifecycle.status']}')">update</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCharts(s) {
+  const sevData = s.severity_counts || {};
+  const sevLabels = Object.keys(sevData);
+  const sevValues = Object.values(sevData);
+
+  if (severityChart) severityChart.destroy();
+  severityChart = new Chart(document.getElementById('chart-severity'), {
+    type: 'bar',
+    data: {
+      labels: sevLabels,
+      datasets: [{
+        data: sevValues,
+        backgroundColor: sevLabels.map(l => SEV_COLORS[l] || '#666'),
+        borderRadius: 4, borderSkipped: false,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#1f1f24' }, ticks: { color: '#6b6b7a' } },
+        y: { grid: { color: '#1f1f24' }, ticks: { color: '#6b6b7a' } }
+      }
+    }
+  });
+
+  const secData = s.sector_counts || {};
+  const secLabels = Object.keys(secData);
+  const secValues = Object.values(secData);
+
+  if (sectorChart) sectorChart.destroy();
+  sectorChart = new Chart(document.getElementById('chart-sector'), {
+    type: 'doughnut',
+    data: {
+      labels: secLabels,
+      datasets: [{
+        data: secValues,
+        backgroundColor: SECTOR_COLORS.slice(0, secLabels.length),
+        borderColor: '#0d0d0f', borderWidth: 3,
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { position: 'right', labels: { color: '#6b6b7a', font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+function openModal(id, currentStatus) {
+  currentUpdateId = id;
+  document.getElementById('modal-id').textContent = id;
+  document.getElementById('modal-status').value = currentStatus;
+  document.getElementById('modal-note').value = '';
+  document.getElementById('modal-update').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modal-update').classList.remove('active');
+  currentUpdateId = null;
+}
+
+async function submitUpdate() {
+  if (!currentUpdateId) return;
+  const status = document.getElementById('modal-status').value;
+  const note   = document.getElementById('modal-note').value;
+  await fetch(`/api/findings/${currentUpdateId}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, note }),
+  });
+  closeModal();
+  await Promise.all([loadStats(), loadFindings()]);
+}
+
+document.getElementById('modal-update').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+async function init() {
+  await Promise.all([loadStats(), loadAlerts(), loadFindings()]);
+  setInterval(() => Promise.all([loadStats(), loadAlerts()]), 30000);
+}
+
+init();
+</script>
+</body>
+</html>
