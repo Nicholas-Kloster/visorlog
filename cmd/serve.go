@@ -35,7 +35,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	for _, n := range counts {
 		total += n
 	}
-	fmt.Printf("[visorlog] db: %s (%d open findings)\n", flagDB, total)
+	fmt.Printf("[VisorLog] db: %s (%d open findings)\n", flagDB, total)
 
 	srv := web.New(db, flagServeAddr)
 	return srv.Start()

@@ -42,7 +42,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/findings/", s.handleFindingUpdate) // /api/findings/:id/status
 
-	fmt.Printf("[visorlog] dashboard → http://%s\n", s.addr)
+	fmt.Printf("[VisorLog] dashboard → http://%s\n", s.addr)
 	return http.ListenAndServe(s.addr, mux)
 }
 
