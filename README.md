@@ -1,3 +1,5 @@
+[![Claude Code Friendly](https://img.shields.io/badge/Claude_Code-Friendly-blueviolet?logo=anthropic&logoColor=white)](https://claude.ai/code)
+
 # VisorLog
 
 **Centralized findings ledger for the NuClide OSINT ecosystem.**
@@ -140,6 +142,20 @@ ollama-recon──┘
 - [VisorGoose](https://github.com/Nicholas-Kloster/visorgoose) — multi-source AI service discovery
 - [aimap](https://github.com/Nicholas-Kloster/aimap) — deep AI service fingerprinter
 - [AI-LLM-Infrastructure-OSINT](https://github.com/Nicholas-Kloster/AI-LLM-Infrastructure-OSINT) — case study repository
+
+---
+
+## Use with Claude Code
+
+Claude Code can query VisorLog, triage findings, and generate disclosure artifacts directly from the database.
+
+```
+Run `visorlog query --severity critical --status open` and triage the results. For each finding, identify whether it falls under a responsible disclosure safe harbor, draft a one-paragraph impact statement, and suggest the correct disclosure channel.
+```
+
+```
+I have a visorlog.db with 168 nodes. Run `visorlog stats` and `visorlog alert`. For any stale-critical findings (open > 7 days), draft escalation notes and identify the correct CERT contact for each org_country.
+```
 
 ---
 
