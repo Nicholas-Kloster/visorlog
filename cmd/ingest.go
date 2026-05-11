@@ -72,7 +72,13 @@ func runIngest(cmd *cobra.Command, args []string) error {
 
 func ingestNDJSON(db *store.DB, r *os.File) error {
 	scanner := bufio.NewScanner(r)
-	var inserted, skipped int
+	// Bump the per-line buffer cap so we can ingest events with rich
+	// raw payloads (the default 64KB chokes on the larger VisorBishop
+	// LiteLLM rows with 50+ model_ids).
+	buf := make([]byte, 0, 1024*1024)
+	scanner.Buffer(buf, 4*1024*1024)
+
+	var inserted, skipped, duped int
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -85,13 +91,26 @@ func ingestNDJSON(db *store.DB, r *os.File) error {
 			skipped++
 			continue
 		}
+
+		// Dedup by (source, notes) when the dedup flag is set. The
+		// notes field carries the unique target URL for VisorBishop
+		// events; combining with source prevents collisions with
+		// other ingesters that happen to share a target string.
+		if flagIngestDedup && e.Source != "" && e.Notes != "" {
+			exists, _ := db.NoteExists(e.Source, e.Notes)
+			if exists {
+				duped++
+				continue
+			}
+		}
+
 		if _, err := db.Insert(&e); err != nil {
 			return err
 		}
 		inserted++
 	}
 
-	fmt.Printf("ingested %d events (%d skipped)\n", inserted, skipped)
+	fmt.Printf("ingested %d events (%d skipped, %d deduped)\n", inserted, skipped, duped)
 	return scanner.Err()
 }
 

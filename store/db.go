@@ -67,6 +67,19 @@ func (db *DB) IPExists(ip string) (bool, error) {
 	return count > 0, err
 }
 
+// NoteExists returns true if an event with the given (source, notes) pair
+// already exists. Used by NDJSON ingest dedup: the notes field typically
+// carries the unique target URL or finding signature, and the source
+// scope prevents collisions across different ingesters.
+func (db *DB) NoteExists(source, notes string) (bool, error) {
+	var count int
+	err := db.conn.QueryRow(
+		`SELECT COUNT(*) FROM events WHERE source = ? AND notes = ?`,
+		source, notes,
+	).Scan(&count)
+	return count > 0, err
+}
+
 // Insert writes a new event record.
 func (db *DB) Insert(e *Event) (int64, error) {
 	if e.Timestamp == "" {
@@ -153,7 +166,7 @@ func (db *DB) Query(f QueryFilter) ([]*Event, error) {
 	q := fmt.Sprintf(`
 		SELECT id, timestamp, event_category, event_type, event_severity,
 		       host_ip, host_hostname, org_name, org_country, sector, tld,
-		       tags, source, vuln_ids, lifecycle_status, notes
+		       tags, source, vuln_ids, lifecycle_status, notes, raw
 		FROM events
 		WHERE %s
 		ORDER BY timestamp DESC
@@ -168,16 +181,22 @@ func (db *DB) Query(f QueryFilter) ([]*Event, error) {
 	var events []*Event
 	for rows.Next() {
 		e := &Event{}
-		var tagsStr, vulnStr string
+		var tagsStr, vulnStr, rawStr string
 		if err := rows.Scan(
 			&e.ID, &e.Timestamp, &e.EventCategory, &e.EventType, &e.EventSeverity,
 			&e.HostIP, &e.HostHostname, &e.OrgName, &e.OrgCountry, &e.Sector, &e.TLD,
-			&tagsStr, &e.Source, &vulnStr, &e.LifecycleStatus, &e.Notes,
+			&tagsStr, &e.Source, &vulnStr, &e.LifecycleStatus, &e.Notes, &rawStr,
 		); err != nil {
 			return nil, err
 		}
 		e.Tags = parseTags(tagsStr)
 		e.VulnIDs = parseTags(vulnStr)
+		if rawStr != "" {
+			var raw map[string]interface{}
+			if json.Unmarshal([]byte(rawStr), &raw) == nil {
+				e.Raw = raw
+			}
+		}
 		events = append(events, e)
 	}
 	return events, rows.Err()
