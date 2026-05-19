@@ -117,10 +117,13 @@ type QueryFilter struct {
 	Sector   string
 	Severity string
 	Status   string
-	Tag      string
+	Tag      string   // legacy single-tag filter (kept for backwards compat)
+	Tags     []string // multi-tag OR filter (any-match)
 	Country  string
 	Source   string
 	TLD      string
+	Since    string // RFC3339 or YYYY-MM-DD; events with timestamp >= Since
+	Until    string // RFC3339 or YYYY-MM-DD; events with timestamp <= Until
 	Limit    int
 }
 
@@ -144,6 +147,28 @@ func (db *DB) Query(f QueryFilter) ([]*Event, error) {
 	if f.Tag != "" {
 		where = append(where, "tags LIKE ?")
 		args = append(args, "%"+f.Tag+"%")
+	}
+	if len(f.Tags) > 0 {
+		ors := []string{}
+		for _, t := range f.Tags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			ors = append(ors, "tags LIKE ?")
+			args = append(args, "%"+t+"%")
+		}
+		if len(ors) > 0 {
+			where = append(where, "("+strings.Join(ors, " OR ")+")")
+		}
+	}
+	if f.Since != "" {
+		where = append(where, "timestamp >= ?")
+		args = append(args, normalizeDate(f.Since))
+	}
+	if f.Until != "" {
+		where = append(where, "timestamp <= ?")
+		args = append(args, normalizeDate(f.Until))
 	}
 	if f.Country != "" {
 		where = append(where, "org_country = ?")
@@ -302,4 +327,15 @@ func (db *DB) StaleCritical(maxAgeDays int) ([]*Event, error) {
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// normalizeDate accepts "YYYY-MM-DD" or full RFC3339 and returns an
+// RFC3339 timestamp suitable for SQL comparison against the timestamp
+// column. Bare date "YYYY-MM-DD" expands to "YYYY-MM-DDT00:00:00Z".
+func normalizeDate(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) == 10 && s[4] == '-' && s[7] == '-' {
+		return s + "T00:00:00Z"
+	}
+	return s
 }
