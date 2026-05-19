@@ -81,7 +81,35 @@ government       medium      open          1
 visorlog query --tag TAKEOVER --status open
 visorlog query --sector government --severity critical
 visorlog query --country ID --json
+
+# Multi-tag OR filter (any-match across tags)
+visorlog query --tags SUB2API,SETUP-OPEN
+
+# Date-range filter (YYYY-MM-DD or RFC3339)
+visorlog query --since 2026-05-19 --until 2026-05-19T23:59:59Z
+
+# Output formats: table (default), json, csv, md
+visorlog query --tags SUB2API --format csv  > findings.csv
+visorlog query --tags SUB2API --format md   > findings-table.md
 ```
+
+Query flags:
+
+| Flag | What it filters |
+|---|---|
+| `--sector` | sector (government, university, healthcare, commercial) |
+| `--severity` | critical / high / medium / low / info |
+| `--status` | lifecycle stage (open, disclosed, acknowledged, remediated, verified) |
+| `--tag <X>` | single tag substring (legacy, kept for backwards compat) |
+| `--tags X,Y,Z` | multi-tag OR (any-match) |
+| `--country` | ISO 3166 alpha-2 |
+| `--source` | which tool discovered it |
+| `--tld` | top-level domain match |
+| `--since YYYY-MM-DD` | events with timestamp >= this |
+| `--until YYYY-MM-DD` | events with timestamp <= this |
+| `--limit N` | max results (default 100) |
+| `--format <fmt>` | table \| json \| csv \| md |
+| `--json` | shortcut for `--format json` |
 
 ### Update lifecycle status
 ```bash
